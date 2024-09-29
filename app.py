@@ -1,41 +1,57 @@
-from flask import Flask, render_template, request, send_file
-import os
-import cv2
-import numpy as np
-import torch
+const imageInput = document.getElementById("imageInput");
+const uploadBtn = document.getElementById("uploadBtn");
+const resultDiv = document.getElementById("result");
+const upscaledImage = document.getElementById("upscaledImage");
+const downloadBtn = document.getElementById("downloadBtn");
 
-app = Flask(__name__)
+// Load TensorFlow.js model (Make sure you use a valid model here)
+async function loadModel() {
+  // Load the pre-trained model here (this is an example; change it according to your model's path)
+  return await tf.loadGraphModel('https://example.com/path/to/your/model.json');
+}
 
-# Load the ESRGAN model
-model = ...  # Load your pre-trained model here
+// Function to upscale image
+async function upscaleImage(model, image) {
+  const tensor = tf.browser.fromPixels(image).toFloat();
+  const resized = tf.image.resizeBilinear(tensor, [tensor.shape[0] * 2, tensor.shape[1] * 2]); // Resize the image
 
-@app.route('/')
-def index():
-    return render_template('index.html')
+  const output = model.predict(resized.expandDims(0));
+  const upscaledTensor = output.squeeze().clipByValue(0, 255).toInt();
 
-@app.route('/upscale', methods=['POST'])
-def upscale():
-    if 'image' not in request.files:
-        return 'No image uploaded', 400
-    
-    image_file = request.files['image']
-    image_path = os.path.join('uploads', image_file.filename)
-    image_file.save(image_path)
+  return await tf.browser.toPixels(upscaledTensor);
+}
 
-    # Read and process the image
-    img = cv2.imread(image_path)
-    upscaled_image = upscale_image(img)  # Use your model to upscale the image
-    upscaled_image_path = 'upscaled_image.png'
-    cv2.imwrite(upscaled_image_path, upscaled_image)
+uploadBtn.addEventListener("click", async function() {
+  if (!imageInput.files.length) {
+    alert("Please select an image first.");
+    return;
+  }
 
-    return send_file(upscaled_image_path, as_attachment=True)
+  const file = imageInput.files[0];
+  const img = document.createElement("img");
+  img.src = URL.createObjectURL(file);
+  img.onload = async () => {
+    const model = await loadModel();
+    const upscaledPixels = await upscaleImage(model, img);
+    const upscaledCanvas = document.createElement("canvas");
+    upscaledCanvas.width = img.width * 2; // Double the size for upscaling
+    upscaledCanvas.height = img.height * 2;
+    const ctx = upscaledCanvas.getContext("2d");
+    ctx.putImageData(new ImageData(upscaledPixels, upscaledCanvas.width, upscaledCanvas.height), 0, 0);
 
-def upscale_image(image):
-    # Here you should add your model inference code
-    # For example:
-    # with torch.no_grad():
-    #     upscaled = model(torch.from_numpy(image).unsqueeze(0)) 
-    # return upscaled.numpy()
+    // Show the upscaled image
+    upscaledImage.src = upscaledCanvas.toDataURL();
+    resultDiv.style.display = "block"; // Show result section
+    downloadBtn.style.display = "inline-block"; // Show download button
 
-if __name__ == '__main__':
-    app.run(debug=True)
+    // Set up the download button
+    downloadBtn.onclick = () => {
+      const link = document.createElement('a');
+      link.href = upscaledImage.src;
+      link.download = 'upscaled_image.png'; // Change the file name if needed
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    };
+  };
+});
